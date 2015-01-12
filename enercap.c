@@ -1,7 +1,26 @@
-/* ddt.c
+/* enercap.c
  *
- * Copyright (c) Nominum, Inc 2013
- * All Rights Reserved
+ * Enercap is a home energy monitor capture program.
+ * 
+ * Copyright (C) 2015  Edward Lemon III
+ *
+ * This program is free software: you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ *
+ * Enercap is a home energy monitor and its server to capture the
+ * monitoring data so that it can be crunched locally without
+ * disabling the upstream service.
  */
 
 #define __APPLE_USE_RFC_3542 1 /* bogus */
@@ -23,6 +42,7 @@
 #include <net/ethernet.h>
 #include <netinet/ip.h>
 #include <netinet/ip6.h>
+#include <netinet/tcp.h>
 
 #include <pcap/pcap.h>
 
@@ -45,6 +65,12 @@ typedef struct {
   int tcp;
 } stats_t;
 
+
+static void
+tcpin(address_t *src, address_t *dest, struct tcphdr *tcp, stats_t *stats,
+      const u_char *bytes, int inp, int inlen)
+{
+}
 
 static void
 one_packet (u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
@@ -195,7 +221,33 @@ one_packet (u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
     }
 
   if (transport_type == IPPROTO_TCP)
-    stats->tcp++;
+    {
+      stats->tcp++;
+      struct tcphdr tcp;
+      if (inlen - inp < sizeof tcp)
+	{
+	  stats->tooshort++;
+	  return;
+	}
+      memcpy(&tcp, &bytes[inp], sizeof tcp);
+      inp -= sizeof tcp;
+
+      if (src.sa.sa_family == AF_INET)
+	{
+	  src.in.sin_port = tcp.th_sport;
+	  dest.in.sin_port = tcp.th_dport;
+	}
+      else if (src.sa.sa_family == AF_INET6)
+	{
+	  src.in6.sin6_port = tcp.th_sport;
+	  dest.in6.sin6_port = tcp.th_dport;
+	}
+      else
+	abort();	// impossible if earlier logic is correct.
+
+      // Process the TCP packet.
+      tcpin(&src, &dest, &tcp, stats, bytes, inp, inlen);
+    }
   else if (transport_type == IPPROTO_UDP)
     stats->udp++;
 
